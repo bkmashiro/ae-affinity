@@ -6,6 +6,7 @@ license="MIT"
 modId="aeaffinity"
 version="${version}"
 displayName="AE Affinity"
+logoFile="logo.png"
 authors="Yuzhe"
 description='''Lazy server-side storage affinity scheduling for Applied Energistics 2.'''
 

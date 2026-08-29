@@ -1,44 +1,82 @@
-# AE Affinity
+<p align="center">
+  <img src="docs/icon.png" alt="AE Affinity icon" width="220">
+</p>
 
-A small, server-side Applied Energistics 2 addon that slowly improves storage placement according to endpoint affinity.
+<h1 align="center">AE Affinity</h1>
 
-## Target
+<p align="center">
+  A lazy, server-side storage affinity scheduler for Applied Energistics 2.
+</p>
+
+<p align="center">
+  <img alt="Minecraft 1.21.1" src="https://img.shields.io/badge/Minecraft-1.21.1-62B47A">
+  <img alt="NeoForge 21.1" src="https://img.shields.io/badge/NeoForge-21.1-EA6847">
+  <img alt="AE2 19.2" src="https://img.shields.io/badge/AE2-19.2-45C5D9">
+  <img alt="Server-side" src="https://img.shields.io/badge/side-server--only-7657C8">
+  <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue">
+</p>
+
+AE2 is excellent at consolidating an exact item key into storage that already contains it, but fixed storage priority cannot express that different media are good at different things. A drive full of cells is efficient for a few bulk types; a large slotted vault is often better for sparse, component-heavy or unstackable items. AE Affinity slowly repairs those mismatches in the background without adding another storage block or replacing AE2's normal routing.
+
+The current MVP is deliberately headless: it registers no blocks or items, contains no client code, and is designed to be installable on a NeoForge server without requiring the addon on clients.
+
+## Supported versions
 
 - Minecraft 1.21.1
-- NeoForge 21.1
+- NeoForge 21.1.x
 - Applied Energistics 2 19.2.x
 - Java 21
 
-The MVP registers no blocks or items and contains no client code.
+## How it works
 
-## What the MVP does
+Every AE grid receives a small background service. A narrow mount/unmount hook preserves the provenance that AE2 normally discards when it flattens providers into network storage. The scheduler then works in three separated phases:
 
-- Registers one headless grid service for every AE grid.
-- Preserves storage-provider provenance with one narrow mount/unmount mixin.
-- Automatically recognizes ordinary AE item cells and direct slotted containers behind storage buses.
-- Leaves nested ME storage and unknown storage implementations opaque.
-- Excludes extract-only sources, insert-only targets, unknown cells, and storage buses/cells with void upgrades.
-- Moves sparse unstackable items (up to four of an exact key) from cells to slotted storage.
-- Moves numerous unstackables and ordinary bulk stacks from slotted storage back toward cells.
-- Uses read-only planning rounds followed by one synchronous validate-and-commit tick.
-- Returns any insertion remainder to the source in the same server tick.
-- Exponentially backs off from 10 seconds to 15 minutes when rounds find no useful work.
+```text
+idle for A ticks
+→ plan read-only for B ticks
+→ validate and commit at most one move in one tick
+```
 
-## Activation
+Planning only creates cheap suggestions. Immediately before committing, AE Affinity resolves both endpoints again, reads current amounts, checks access and conservation properties, and asks both storages to simulate the whole micro-transfer. The actual `extract → insert → return remainder` sequence then completes synchronously in the same server tick. No item remains in flight between ticks.
 
-The default server config is `ANCHORED`, so installing the mod does not immediately rearrange every network.
+The interval is adaptive. Useful work brings the scheduler back toward its configured minimum; stable rounds exponentially back off toward the maximum. The defaults range from 10 seconds to 15 minutes.
 
-With operator permission, target any loaded AE node position:
+### Current automatic affinity
+
+- Ordinary AE item cells prefer existing keys, stackable bulk items and numerous identical items.
+- Direct standard slotted containers behind a storage bus prefer a few sparse unstackable items.
+- Sparse unstackables of an exact key, currently up to four, can move from cells to slotted storage.
+- Numerous unstackables and ordinary bulk stacks can move back toward cells.
+- Child ME networks, custom cells and genuinely unknown storage remain opaque instead of being guessed.
+- Extract-only sources, insert-only targets, voiding storage and unknown conservation semantics are excluded from automatic movement.
+
+This is intentionally a small first policy, not a claim of global optimality. The endpoint-reporting layer is designed to grow into subnetwork aggregation and mod-specific affinity adapters without changing the scheduler.
+
+## Installation and activation
+
+1. Install NeoForge, AE2 and GuideME on the server.
+2. Place the AE Affinity JAR in the server's `mods/` directory.
+3. Join as an operator, look directly at an AE block in the network, and run:
+
+```text
+/aeaffinity enable
+```
+
+The block does **not** have to be an ME Controller. Any loaded AE node works, including a Drive, Interface or Controller. That node becomes a persistent activation anchor for whichever AE grid currently contains it.
+
+The coordinate forms remain available for the server console, command blocks and automation:
 
 ```text
 /aeaffinity enable <x> <y> <z>
-/aeaffinity disable <x> <y> <z>
-/aeaffinity status <x> <y> <z>
+/aeaffinity disable [<x> <y> <z>]
+/aeaffinity status [<x> <y> <z>]
 ```
 
-`activation=ALL` enables every grid; `OFF` pauses scheduling. Server config is generated as `config/aeaffinity-server.toml`.
+Without coordinates, player commands use the AE block under the crosshair within eight blocks.
 
-If a network splits, only the side containing the anchored node remains enabled. A merged network is enabled when it contains at least one anchor.
+Why an anchor instead of a network ID? AE grids are runtime objects: cable changes can split or merge them, and they are reconstructed after reload. The coordinate is used only to locate an AE node when the command runs; the anchor flag is persisted with that node's AE grid-service data, not in a global coordinate list. Breaking the block removes the node and its anchor, while unloading and reloading its chunk restores the flag with the node. If a network splits, only the side containing an anchor remains enabled; when networks merge, the merged grid is enabled if it contains at least one anchor.
+
+The default mode is `ANCHORED`, so installing the addon does not immediately rearrange every player's storage. Set `activation=ALL` to enable every grid or `OFF` to pause scheduling globally. NeoForge generates `config/aeaffinity-server.toml` with the activation mode and speed bounds.
 
 ## Build and verify
 
@@ -48,8 +86,22 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
 ./gradlew runServer
 ```
 
-The current tests cover scheduler phase separation and backoff, affinity direction, full simulation gating, partial insertion rollback, and rollback failure reporting.
+The tests cover phase separation and adaptive backoff, affinity direction, whole-transfer simulation gating, partial insertion rollback and rollback-failure reporting. A NeoForge dedicated development server is also used as the startup smoke test.
 
-## Current boundary
+## Safety boundary
 
-Subnetwork aggregation and third-party affinity adapters are intentionally not guessed in the MVP. A storage bus targeting another `MEStorage` remains opaque until a later aggregate-report protocol can describe it safely.
+AE Affinity follows AE2's own synchronous transfer model rather than keeping a cross-tick escrow. Normal player actions cannot interleave with the extraction and insertion calls inside one server tick. A JVM crash at exactly that point, or a broken third-party storage that mutates and then throws, is outside this guarantee. Unknown, voiding, one-way and alias-ambiguous endpoints are therefore conservative by default.
+
+## Roadmap
+
+- Aggregate affinity reports at storage buses connected to child ME networks.
+- Data-driven affinity profiles for third-party storage mods and modpacks.
+- Better incremental endpoint snapshots for externally mutated high-churn containers.
+- Real-network profiling and tuning on large modded servers.
+- Optional status UI only if the headless commands prove insufficient.
+
+CI is intentionally absent for now; the project is verified locally to preserve limited GitHub Actions quota.
+
+## License
+
+Code is available under the [MIT License](LICENSE). Applied Energistics 2 is a separate project and dependency. The original icon in `docs/icon.png` was generated specifically for AE Affinity and does not reuse the AE2 logo.
