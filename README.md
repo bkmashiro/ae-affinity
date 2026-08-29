@@ -18,7 +18,7 @@
 
 AE2 is excellent at consolidating an exact item key into storage that already contains it, but fixed storage priority cannot express that different media are good at different things. A drive full of cells is efficient for a few bulk types; a large slotted vault is often better for sparse, component-heavy or unstackable items. AE Affinity slowly repairs those mismatches in the background without adding another storage block or replacing AE2's normal routing.
 
-The current MVP is deliberately headless: it registers no blocks or items, contains no client code, and is designed to be installable on a NeoForge server without requiring the addon on clients.
+The current MVP is deliberately headless: it registers no blocks or items, contains no client code, and is server-only. Clients need AE2 and GuideME as usual, but do not need AE Affinity installed.
 
 ## Supported versions
 
@@ -56,7 +56,7 @@ This is intentionally a small first policy, not a claim of global optimality. Th
 
 ## Installation and activation
 
-1. Install NeoForge, AE2 and GuideME on the server.
+1. Install NeoForge, AE2 and GuideME on the server. Clients need matching versions of those three, but not AE Affinity.
 2. Place the AE Affinity JAR in the server's `mods/` directory.
 3. Join as an operator, look directly at an AE block in the network, and run:
 
@@ -87,7 +87,7 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
 ./gradlew verifyAll
 ```
 
-`verifyAll` runs the ordinary unit suite, builds the distributable JAR, and starts a headless NeoForge GameTest server. The GameTests construct real powered AE grids against both vanilla chests and two-block Create Item Vaults. They verify bidirectional sparse/bulk migration, exact conservation, full-target rejection, endpoint removal, Void Card and access restrictions, anchor lifecycle, and prompt wake-up after direct external inventory mutation. Test-only classes and structures are excluded from the release JAR. Create 6.0.6 is isolated to the GameTest runtime source set, so Create is neither packaged nor required on production servers.
+`verifyAll` runs the ordinary unit suite, builds the distributable JAR, and starts a headless NeoForge GameTest server. The GameTests construct real powered AE grids against both vanilla chests and two-block Create Item Vaults. They verify bidirectional sparse/bulk migration, exact conservation, full-target rejection, endpoint removal, Void Card and access restrictions, anchor lifecycle, and prompt wake-up after direct external inventory mutation. Test-only classes and structures are excluded from the release JAR. Create 6.0.6 is isolated to the GameTest runtime source set, so Create is neither packaged nor required on production servers. A real NeoForge login was also verified with AE Affinity present only on the server and absent from the AE2 + GuideME client.
 
 ## Safety boundary
 
