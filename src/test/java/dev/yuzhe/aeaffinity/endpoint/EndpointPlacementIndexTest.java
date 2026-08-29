@@ -114,6 +114,23 @@ class EndpointPlacementIndexTest {
     }
 
     @Test
+    void providerChangeDirtiesEveryMountedStorageFromThatProvider() {
+        var provider = mock(IStorageProvider.class);
+        var first = storageWith(KEYS.subList(0, 1));
+        var second = storageWith(KEYS.subList(1, 2));
+        var index = new EndpointPlacementIndex(new Random(8));
+        index.mount(endpoint(provider, first));
+        index.mount(endpoint(provider, second));
+        index.refreshOne(8, (ignored, key, amount) -> true);
+        index.refreshOne(8, (ignored, key, amount) -> true);
+        assertThat(index.pendingCount()).isZero();
+
+        index.markDirty(provider);
+
+        assertThat(index.pendingCount()).isEqualTo(2);
+    }
+
+    @Test
     void unmountedEndpointsLeaveNoQueuedRefresh() {
         var storage = storageWith(KEYS);
         var endpoint = endpoint(storage);
@@ -128,7 +145,11 @@ class EndpointPlacementIndexTest {
     }
 
     private static MountedEndpoint endpoint(MEStorage storage) {
-        return new MountedEndpoint(mock(IStorageProvider.class), storage, 0);
+        return endpoint(mock(IStorageProvider.class), storage);
+    }
+
+    private static MountedEndpoint endpoint(IStorageProvider provider, MEStorage storage) {
+        return new MountedEndpoint(provider, storage, 0);
     }
 
     private static MEStorage storageWith(List<AEItemKey> keys) {

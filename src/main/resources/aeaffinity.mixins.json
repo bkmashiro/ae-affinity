@@ -4,7 +4,8 @@
   "package": "dev.yuzhe.aeaffinity.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "ProviderStateMixin"
+    "ProviderStateMixin",
+    "StorageBusPartMixin"
   ],
   "injectors": {
     "defaultRequire": 1

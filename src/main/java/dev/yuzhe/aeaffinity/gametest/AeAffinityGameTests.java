@@ -74,6 +74,28 @@ public final class AeAffinityGameTests {
         });
     }
 
+    @GameTest(template = "empty", timeoutTicks = 550, batch = "external_change")
+    public static void externalChestMutationWakesBackedOffGrid(GameTestHelper helper) {
+        var cobble = AEItemKey.of(Items.COBBLESTONE);
+        var fixture = setupNetwork(helper, cobble, 0, 10_000);
+
+        helper.runAfterDelay(350, () -> {
+            for (int slot = 0; slot < 4; slot++) {
+                fixture.chest().setItem(slot, new ItemStack(Items.COBBLESTONE, 64));
+            }
+            fixture.chest().setChanged();
+        });
+
+        helper.succeedWhen(() -> {
+            var mountedCell = fixture.drive().getCellInventory(0);
+            helper.assertTrue(mountedCell != null, "drive did not mount item cell");
+            helper.assertTrue(mountedCell.getAvailableStacks().get(cobble) == 256,
+                    "external chest mutation did not wake affinity before the backed-off round");
+            helper.assertTrue(count(fixture.chest(), Items.COBBLESTONE) == 0,
+                    "bulk items remain in externally changed chest");
+        });
+    }
+
     @GameTest(template = "empty", timeoutTicks = 400)
     public static void fullTargetDoesNotExtractSource(GameTestHelper helper) {
         var helmet = AEItemKey.of(Items.IRON_HELMET);
@@ -159,10 +181,18 @@ public final class AeAffinityGameTests {
     }
 
     private static Fixture setupNetwork(GameTestHelper helper, AEItemKey cellKey, long cellAmount) {
+        return setupNetwork(helper, cellKey, cellAmount, 20);
+    }
+
+    private static Fixture setupNetwork(
+            GameTestHelper helper,
+            AEItemKey cellKey,
+            long cellAmount,
+            int maxIdleTicks) {
         AeAffinityConfig.ACTIVATION.set(ActivationMode.ALL);
         AeAffinityConfig.CHARGE_ENERGY.set(true);
         AeAffinityConfig.MIN_IDLE_TICKS.set(20);
-        AeAffinityConfig.MAX_IDLE_TICKS.set(20);
+        AeAffinityConfig.MAX_IDLE_TICKS.set(maxIdleTicks);
         AeAffinityConfig.PLANNING_TICKS.set(1);
 
         helper.setBlock(ENERGY, AEBlocks.CREATIVE_ENERGY_CELL.block());

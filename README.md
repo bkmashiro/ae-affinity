@@ -37,7 +37,7 @@ idle for A ticks
 → validate and commit at most one move in one tick
 ```
 
-Planning only creates cheap suggestions. A bounded placement index advances at most eight keys for one dirty endpoint per planning tick and retains a 16-entry reservoir of useful hints. Source and target selection use indexed lists with at most four target comparisons, rather than walking every endpoint or item key. Mounts, unmounts and attempted moves mark endpoints dirty; otherwise endpoints are reconciled round-robin during the already infrequent planning phase. Immediately before committing, AE Affinity resolves both endpoints again, reads current amounts, checks access and conservation properties, and asks both storages to simulate the whole micro-transfer.
+Planning only creates cheap suggestions. A bounded placement index advances at most eight keys for one dirty endpoint per planning tick and retains a 16-entry reservoir of useful hints. Source and target selection use indexed lists with at most four target comparisons, rather than walking every endpoint or item key. Mounts, unmounts and attempted moves mark endpoints dirty immediately. Storage Bus operations also reuse AE2's wrapper callback; direct hopper, player and third-party mutations are detected by a fallback that checks at most eight standard `IItemHandler` slots per powered grid each second, with inventories over 4096 slots left to low-frequency reconciliation. Otherwise endpoints are reconciled round-robin during the already infrequent planning phase. Immediately before committing, AE Affinity resolves both endpoints again, reads current amounts, checks access and conservation properties, and asks both storages to simulate the whole micro-transfer.
 
 The actual `extract → insert → return remainder` sequence completes synchronously in the same server tick. By default the insertion uses AE2's energy service and the same powered helper as the I/O Port. Servers can set `chargeEnergy=false` to make background insertion free; the grid must still be powered for the scheduler to run. No item remains in flight between ticks.
 
@@ -87,7 +87,7 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
 ./gradlew verifyAll
 ```
 
-`verifyAll` runs the ordinary unit suite, builds the distributable JAR, and starts a headless NeoForge GameTest server. The GameTests construct real powered AE grids with a Drive, item cell, storage bus and chest. They verify sparse and bulk migration, exact conservation, full-target rejection, endpoint removal, Void Card exclusion, access direction and removal of a destroyed activation anchor. Test-only classes and structures are excluded from the release JAR.
+`verifyAll` runs the ordinary unit suite, builds the distributable JAR, and starts a headless NeoForge GameTest server. The GameTests construct real powered AE grids with a Drive, item cell, storage bus and chest. They verify sparse and bulk migration, exact conservation, full-target rejection, endpoint removal, Void Card exclusion, access direction, removal of a destroyed activation anchor, and prompt wake-up when a backed-off grid's chest is changed externally. Test-only classes and structures are excluded from the release JAR.
 
 ## Safety boundary
 
@@ -105,4 +105,4 @@ CI is intentionally absent for now; the project is verified locally to preserve 
 
 ## License
 
-Code is available under the [MIT License](LICENSE). Applied Energistics 2 is a separate project and dependency. The original icon in `docs/icon.png` was generated specifically for AE Affinity and does not reuse the AE2 logo.
+Code is available under the [MIT License](LICENSE). Applied Energistics 2 is a separate project and dependency. The project logo is original artwork supplied specifically for AE Affinity and does not reuse the AE2 logo.

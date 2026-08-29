@@ -2,6 +2,7 @@ package dev.yuzhe.aeaffinity.endpoint;
 
 import appeng.api.stacks.AEItemKey;
 import appeng.api.stacks.AEKey;
+import appeng.api.storage.IStorageProvider;
 import appeng.api.storage.MEStorage;
 import it.unimi.dsi.fastutil.objects.Object2LongMap;
 import java.util.ArrayDeque;
@@ -21,6 +22,7 @@ public final class EndpointPlacementIndex {
     private final Map<MEStorage, Snapshot> snapshots = new IdentityHashMap<>();
     private final ArrayDeque<MEStorage> dirtyQueue = new ArrayDeque<>();
     private final Set<MEStorage> queued = Collections.newSetFromMap(new IdentityHashMap<>());
+    private final Map<IStorageProvider, Set<MEStorage>> providerStorages = new IdentityHashMap<>();
     private final List<MEStorage> reconciliationOrder = new ArrayList<>();
     private final List<MEStorage> candidateSources = new ArrayList<>();
     private final Set<MEStorage> candidateSourceSet = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -37,15 +39,24 @@ public final class EndpointPlacementIndex {
 
     public void mount(MountedEndpoint endpoint) {
         var previous = snapshots.put(endpoint.storage(), new Snapshot(endpoint));
+        if (previous != null) {
+            removeProviderStorage(previous.endpoint.provider(), endpoint.storage());
+        }
         if (previous == null) {
             reconciliationOrder.add(endpoint.storage());
         }
         removeCandidateSource(endpoint.storage());
+        providerStorages.computeIfAbsent(
+                endpoint.provider(), ignored -> Collections.newSetFromMap(new IdentityHashMap<>()))
+                .add(endpoint.storage());
         enqueue(endpoint.storage());
     }
 
     public void unmount(MountedEndpoint endpoint) {
-        snapshots.remove(endpoint.storage());
+        var removed = snapshots.remove(endpoint.storage());
+        if (removed != null) {
+            removeProviderStorage(removed.endpoint.provider(), endpoint.storage());
+        }
         queued.remove(endpoint.storage());
         dirtyQueue.removeIf(storage -> storage == endpoint.storage());
         reconciliationOrder.removeIf(storage -> storage == endpoint.storage());
@@ -58,6 +69,24 @@ public final class EndpointPlacementIndex {
             snapshot.cursor = null;
             enqueue(endpoint.storage());
         }
+    }
+
+    public void markDirty(IStorageProvider provider) {
+        var storages = providerStorages.get(provider);
+        if (storages == null) {
+            return;
+        }
+        for (var storage : storages) {
+            var snapshot = snapshots.get(storage);
+            if (snapshot != null) {
+                snapshot.cursor = null;
+                enqueue(storage);
+            }
+        }
+    }
+
+    public boolean hasProvider(IStorageProvider provider) {
+        return providerStorages.containsKey(provider);
     }
 
     public boolean contains(MountedEndpoint endpoint) {
@@ -178,6 +207,16 @@ public final class EndpointPlacementIndex {
     private void removeCandidateSource(MEStorage storage) {
         if (candidateSourceSet.remove(storage)) {
             candidateSources.removeIf(candidate -> candidate == storage);
+        }
+    }
+
+    private void removeProviderStorage(IStorageProvider provider, MEStorage storage) {
+        var storages = providerStorages.get(provider);
+        if (storages != null) {
+            storages.remove(storage);
+            if (storages.isEmpty()) {
+                providerStorages.remove(provider);
+            }
         }
     }
 

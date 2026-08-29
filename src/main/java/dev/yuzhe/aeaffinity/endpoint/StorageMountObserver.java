@@ -40,6 +40,13 @@ public final class StorageMountObserver {
         }
     }
 
+    public static synchronized void changed(IStorageService service, IStorageProvider provider) {
+        var listener = listener(service);
+        if (listener != null) {
+            listener.onChanged(provider);
+        }
+    }
+
     private static EndpointListener listener(IStorageService service) {
         var reference = LISTENERS.get(service);
         if (reference == null) {

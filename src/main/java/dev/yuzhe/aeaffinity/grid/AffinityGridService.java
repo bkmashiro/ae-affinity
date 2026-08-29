@@ -6,12 +6,14 @@ import appeng.api.networking.IGridServiceProvider;
 import appeng.me.helpers.BaseActionSource;
 import appeng.api.networking.storage.IStorageService;
 import appeng.api.stacks.AEItemKey;
+import appeng.api.storage.IStorageProvider;
 import dev.yuzhe.aeaffinity.affinity.AffinityScorer;
 import dev.yuzhe.aeaffinity.affinity.EndpointClassifier;
 import dev.yuzhe.aeaffinity.affinity.EndpointKind;
 import dev.yuzhe.aeaffinity.affinity.MigrationPlan;
 import dev.yuzhe.aeaffinity.config.AeAffinityConfig;
 import dev.yuzhe.aeaffinity.endpoint.EndpointPlacementIndex;
+import dev.yuzhe.aeaffinity.endpoint.ExternalInventoryProbeIndex;
 import dev.yuzhe.aeaffinity.endpoint.EndpointListener;
 import dev.yuzhe.aeaffinity.endpoint.MountedEndpoint;
 import dev.yuzhe.aeaffinity.endpoint.StorageMountObserver;
@@ -36,16 +38,20 @@ public final class AffinityGridService implements IAffinityGridService, IGridSer
     private static final String ANCHOR_TAG = "aeaffinity:anchor";
     private static final int TARGET_SAMPLES = 4;
     private static final int PLACEMENT_SCAN_BUDGET = 8;
+    private static final int EXTERNAL_PROBE_INTERVAL_TICKS = 20;
+    private static final int EXTERNAL_SLOT_BUDGET = 8;
     private static final int MIN_GAIN = 20;
     private static final long MAX_MOVE = 256;
 
     private final IGrid grid;
     private final EndpointPlacementIndex endpointIndex = new EndpointPlacementIndex();
+    private final ExternalInventoryProbeIndex externalProbes = new ExternalInventoryProbeIndex();
     private final Set<IGridNode> anchors = Collections.newSetFromMap(new IdentityHashMap<>());
     private final Map<Long, MigrationPlan> plans = new java.util.HashMap<>();
     private final Random random = new Random();
     private final LazyScheduler scheduler;
     private long nextPlanId;
+    private int externalProbeTicks;
 
     public AffinityGridService(IGrid grid, IStorageService storageService) {
         this.grid = grid;
@@ -61,6 +67,13 @@ public final class AffinityGridService implements IAffinityGridService, IGridSer
     @Override
     public void onServerEndTick() {
         if (isEnabled() && grid.getEnergyService().isNetworkPowered()) {
+            if (++externalProbeTicks >= EXTERNAL_PROBE_INTERVAL_TICKS) {
+                externalProbeTicks = 0;
+                var changed = externalProbes.probeOne(EXTERNAL_SLOT_BUDGET);
+                if (changed != null) {
+                    onChanged(changed);
+                }
+            }
             scheduler.tick();
         }
     }
@@ -87,14 +100,24 @@ public final class AffinityGridService implements IAffinityGridService, IGridSer
     @Override
     public void onMounted(MountedEndpoint endpoint) {
         endpointIndex.mount(endpoint);
+        externalProbes.mount(endpoint.provider());
         scheduler.wakeUp();
     }
 
     @Override
     public void onUnmounted(MountedEndpoint endpoint) {
         endpointIndex.unmount(endpoint);
+        if (!endpointIndex.hasProvider(endpoint.provider())) {
+            externalProbes.unmount(endpoint.provider());
+        }
         plans.entrySet().removeIf(entry -> entry.getValue().source().storage() == endpoint.storage()
                 || entry.getValue().target().storage() == endpoint.storage());
+        scheduler.wakeUp();
+    }
+
+    @Override
+    public void onChanged(IStorageProvider provider) {
+        endpointIndex.markDirty(provider);
         scheduler.wakeUp();
     }
 
