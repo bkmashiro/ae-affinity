@@ -40,23 +40,21 @@ public final class CreateVaultGameTests {
     private CreateVaultGameTests() {
     }
 
-    @GameTest(template = "empty", timeoutTicks = 120, batch = "create_oracle")
-    public static void vaultMembersExposeOneSharedInventory(GameTestHelper helper) {
-        setup(helper, AEItemKey.of(Items.COBBLESTONE), 0, 20, ActivationMode.OFF);
+    @GameTest(template = "empty", timeoutTicks = 400, batch = "create_sparse")
+    public static void sparseItemMovesFromCellToVault(GameTestHelper helper) {
+        var helmet = AEItemKey.of(Items.IRON_HELMET);
+        var fixture = setup(helper, helmet, 1, 20, ActivationMode.OFF);
         helper.runAfterDelay(40, () -> {
             var first = vaultHandler(helper, VAULT_A, Direction.WEST);
             var second = vaultHandler(helper, VAULT_B, Direction.EAST);
             helper.assertTrue(first == second, "Vault members did not resolve to one shared handler");
-            insert(first, Items.COBBLESTONE, 64, helper);
-            helper.assertTrue(count(second, Items.COBBLESTONE) == 64, "Vault members did not share contents");
-            helper.succeed();
+            insert(first, Items.COBBLESTONE, 1, helper);
+            helper.assertTrue(count(second, Items.COBBLESTONE) == 1, "Vault members did not share contents");
+            for (int slot = 0; slot < first.getSlots(); slot++) {
+                first.extractItem(slot, 64, false);
+            }
+            AeAffinityConfig.ACTIVATION.set(ActivationMode.ALL);
         });
-    }
-
-    @GameTest(template = "empty", timeoutTicks = 400, batch = "create_sparse")
-    public static void sparseItemMovesFromCellToVault(GameTestHelper helper) {
-        var helmet = AEItemKey.of(Items.IRON_HELMET);
-        var fixture = setup(helper, helmet, 1, 20, ActivationMode.ALL);
         helper.succeedWhen(() -> {
             var cell = fixture.drive().getCellInventory(0);
             helper.assertTrue(cell != null, "drive did not mount item cell");
@@ -102,19 +100,23 @@ public final class CreateVaultGameTests {
         var helmet = AEItemKey.of(Items.IRON_HELMET);
         var fixture = setup(helper, helmet, 1, 20, ActivationMode.OFF, false);
         helper.runAfterDelay(100, () -> {
-            var vault = vaultHandler(helper, VAULT_A, Direction.WEST);
-            for (int slot = 0; slot < vault.getSlots(); slot++) {
-                var filler = new ItemStack(Items.WOODEN_SWORD);
-                filler.setDamageValue(slot + 1);
-                var remainder = vault.insertItem(slot, filler, false);
-                helper.assertTrue(remainder.isEmpty(), "failed to fill Vault slot " + slot);
+            try {
+                var vault = vaultHandler(helper, VAULT_A, Direction.WEST);
+                for (int slot = 0; slot < vault.getSlots(); slot++) {
+                    var filler = new ItemStack(Items.WOODEN_SWORD);
+                    filler.setDamageValue(slot + 1);
+                    var remainder = vault.insertItem(slot, filler, false);
+                    helper.assertTrue(remainder.isEmpty(), "failed to fill Vault slot " + slot);
+                }
+                var probe = new ItemStack(Items.IRON_HELMET);
+                for (int slot = 0; slot < vault.getSlots(); slot++) {
+                    probe = vault.insertItem(slot, probe, true);
+                }
+                helper.assertTrue(!probe.isEmpty(), "Vault was not actually full");
+                AeAffinityConfig.ACTIVATION.set(ActivationMode.ALL);
+            } catch (Throwable failure) {
+                helper.fail("failed to prepare full Vault: " + failure.getMessage());
             }
-            var probe = new ItemStack(Items.IRON_HELMET);
-            for (int slot = 0; slot < vault.getSlots(); slot++) {
-                probe = vault.insertItem(slot, probe, true);
-            }
-            helper.assertTrue(!probe.isEmpty(), "Vault was not actually full");
-            AeAffinityConfig.ACTIVATION.set(ActivationMode.ALL);
         });
         helper.runAfterDelay(300, () -> {
             var cell = fixture.drive().getCellInventory(0);

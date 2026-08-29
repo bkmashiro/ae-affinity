@@ -8,6 +8,7 @@ import appeng.api.networking.storage.IStorageService;
 import appeng.api.stacks.AEItemKey;
 import appeng.api.storage.IStorageProvider;
 import dev.yuzhe.aeaffinity.affinity.AffinityScorer;
+import dev.yuzhe.aeaffinity.affinity.AggregateTargetReport;
 import dev.yuzhe.aeaffinity.affinity.EndpointClassifier;
 import dev.yuzhe.aeaffinity.affinity.EndpointKind;
 import dev.yuzhe.aeaffinity.affinity.MigrationPlan;
@@ -45,6 +46,7 @@ public final class AffinityGridService implements IAffinityGridService, IGridSer
 
     private final IGrid grid;
     private final EndpointPlacementIndex endpointIndex = new EndpointPlacementIndex();
+    private final AggregateTargetReport aggregateTargetReport = new AggregateTargetReport();
     private final ExternalInventoryProbeIndex externalProbes = new ExternalInventoryProbeIndex();
     private final Set<IGridNode> anchors = Collections.newSetFromMap(new IdentityHashMap<>());
     private final Map<Long, MigrationPlan> plans = new java.util.HashMap<>();
@@ -100,6 +102,7 @@ public final class AffinityGridService implements IAffinityGridService, IGridSer
     @Override
     public void onMounted(MountedEndpoint endpoint) {
         endpointIndex.mount(endpoint);
+        updateTargetReport(endpoint);
         externalProbes.mount(endpoint.provider());
         scheduler.wakeUp();
     }
@@ -107,6 +110,7 @@ public final class AffinityGridService implements IAffinityGridService, IGridSer
     @Override
     public void onUnmounted(MountedEndpoint endpoint) {
         endpointIndex.unmount(endpoint);
+        aggregateTargetReport.remove(endpoint.storage());
         if (!endpointIndex.hasProvider(endpoint.provider())) {
             externalProbes.unmount(endpoint.provider());
         }
@@ -118,6 +122,9 @@ public final class AffinityGridService implements IAffinityGridService, IGridSer
     @Override
     public void onChanged(IStorageProvider provider) {
         endpointIndex.markDirty(provider);
+        for (var endpoint : endpointIndex.endpoints(provider)) {
+            updateTargetReport(endpoint);
+        }
         scheduler.wakeUp();
     }
 
@@ -143,6 +150,11 @@ public final class AffinityGridService implements IAffinityGridService, IGridSer
     @Override
     public void removeAnchor(IGridNode node) {
         anchors.remove(node);
+    }
+
+    @Override
+    public int quoteTargetAffinity(AEItemKey key, long amount) {
+        return aggregateTargetReport.quote(key.getMaxStackSize(), amount);
     }
 
     private boolean isEnabled() {
@@ -184,8 +196,7 @@ public final class AffinityGridService implements IAffinityGridService, IGridSer
                 continue;
             }
 
-            var targetKind = EndpointClassifier.kind(target);
-            var targetAffinity = AffinityScorer.score(targetKind, key.getMaxStackSize(), sourceAmount);
+            var targetAffinity = targetAffinity(target, key, sourceAmount);
             if (targetAffinity == AffinityScorer.UNKNOWN) {
                 continue;
             }
@@ -236,7 +247,6 @@ public final class AffinityGridService implements IAffinityGridService, IGridSer
             }
 
             var sourceKind = EndpointClassifier.kind(plan.source());
-            var targetKind = EndpointClassifier.kind(plan.target());
             var currentAmount = plan.source().storage().getAvailableStacks().get(plan.key());
             if (currentAmount < plan.amount()) {
                 return CommitResult.STALE;
@@ -245,7 +255,11 @@ public final class AffinityGridService implements IAffinityGridService, IGridSer
                 return CommitResult.STALE;
             }
 
-            var currentGain = AffinityScorer.score(targetKind, plan.key().getMaxStackSize(), currentAmount)
+            var currentTargetAffinity = targetAffinity(plan.target(), plan.key(), currentAmount);
+            if (currentTargetAffinity == AffinityScorer.UNKNOWN) {
+                return CommitResult.REJECTED;
+            }
+            var currentGain = currentTargetAffinity
                     - AffinityScorer.score(sourceKind, plan.key().getMaxStackSize(), currentAmount);
             if (currentGain <= MIN_GAIN) {
                 return CommitResult.REJECTED;
@@ -284,5 +298,25 @@ public final class AffinityGridService implements IAffinityGridService, IGridSer
 
     private boolean stillMounted(MountedEndpoint endpoint) {
         return endpointIndex.contains(endpoint);
+    }
+
+    private void updateTargetReport(MountedEndpoint endpoint) {
+        aggregateTargetReport.update(
+                endpoint.storage(),
+                EndpointClassifier.kind(endpoint),
+                EndpointClassifier.isConservativeTarget(endpoint));
+    }
+
+    private int targetAffinity(MountedEndpoint endpoint, AEItemKey key, long amount) {
+        var kind = EndpointClassifier.kind(endpoint);
+        if (kind != EndpointKind.AGGREGATE) {
+            return AffinityScorer.score(kind, key.getMaxStackSize(), amount);
+        }
+
+        var node = EndpointClassifier.nestedGridNode(endpoint);
+        if (node == null || node.getGrid() == grid) {
+            return AffinityScorer.UNKNOWN;
+        }
+        return node.getGrid().getService(IAffinityGridService.class).quoteTargetAffinity(key, amount);
     }
 }

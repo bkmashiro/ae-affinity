@@ -89,6 +89,21 @@ public final class EndpointPlacementIndex {
         return providerStorages.containsKey(provider);
     }
 
+    public List<MountedEndpoint> endpoints(IStorageProvider provider) {
+        var storages = providerStorages.get(provider);
+        if (storages == null || storages.isEmpty()) {
+            return List.of();
+        }
+        var result = new ArrayList<MountedEndpoint>(storages.size());
+        for (var storage : storages) {
+            var snapshot = snapshots.get(storage);
+            if (snapshot != null) {
+                result.add(snapshot.endpoint);
+            }
+        }
+        return result;
+    }
+
     public boolean contains(MountedEndpoint endpoint) {
         var snapshot = snapshots.get(endpoint.storage());
         return snapshot != null && snapshot.endpoint == endpoint;

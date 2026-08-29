@@ -4,6 +4,8 @@ import appeng.api.AECapabilities;
 import appeng.api.config.AccessRestriction;
 import appeng.api.config.Settings;
 import appeng.api.implementations.blockentities.IChestOrDrive;
+import appeng.api.networking.GridHelper;
+import appeng.api.networking.IGridNode;
 import appeng.core.definitions.AEItems;
 import appeng.me.cells.BasicCellInventory;
 import appeng.parts.storagebus.StorageBusPart;
@@ -20,10 +22,19 @@ public final class EndpointClassifier {
         if (endpoint.provider() instanceof IChestOrDrive drive) {
             return hasOnlyKnownCells(drive) ? EndpointKind.CELL : EndpointKind.OPAQUE;
         }
-        if (endpoint.provider() instanceof StorageBusPart bus && isDirectSlottedStorage(bus)) {
-            return EndpointKind.SLOTTED;
+        if (endpoint.provider() instanceof StorageBusPart bus) {
+            if (nestedGrid(bus) != null) {
+                return EndpointKind.AGGREGATE;
+            }
+            if (isDirectSlottedStorage(bus)) {
+                return EndpointKind.SLOTTED;
+            }
         }
         return EndpointKind.OPAQUE;
+    }
+
+    public static IGridNode nestedGridNode(MountedEndpoint endpoint) {
+        return endpoint.provider() instanceof StorageBusPart bus ? nestedGrid(bus) : null;
     }
 
     public static boolean isConservativeTarget(MountedEndpoint endpoint) {
@@ -63,6 +74,18 @@ public final class EndpointClassifier {
             return false;
         }
         return level.getCapability(Capabilities.ItemHandler.BLOCK, target, context) != null;
+    }
+
+    private static IGridNode nestedGrid(StorageBusPart bus) {
+        if (!(bus.getLevel() instanceof ServerLevel level) || bus.getSide() == null) {
+            return null;
+        }
+        var context = bus.getSide().getOpposite();
+        var target = bus.getBlockEntity().getBlockPos().relative(bus.getSide());
+        if (level.getCapability(AECapabilities.ME_STORAGE, target, context) == null) {
+            return null;
+        }
+        return GridHelper.getExposedNode(level, target, context);
     }
 
     private static boolean hasOnlyKnownCells(IChestOrDrive drive) {
