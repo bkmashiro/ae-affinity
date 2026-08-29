@@ -6,12 +6,12 @@ import appeng.api.networking.IGridServiceProvider;
 import appeng.me.helpers.BaseActionSource;
 import appeng.api.networking.storage.IStorageService;
 import appeng.api.stacks.AEItemKey;
-import appeng.api.storage.MEStorage;
 import dev.yuzhe.aeaffinity.affinity.AffinityScorer;
 import dev.yuzhe.aeaffinity.affinity.EndpointClassifier;
 import dev.yuzhe.aeaffinity.affinity.EndpointKind;
 import dev.yuzhe.aeaffinity.affinity.MigrationPlan;
 import dev.yuzhe.aeaffinity.config.AeAffinityConfig;
+import dev.yuzhe.aeaffinity.endpoint.EndpointPlacementIndex;
 import dev.yuzhe.aeaffinity.endpoint.EndpointListener;
 import dev.yuzhe.aeaffinity.endpoint.MountedEndpoint;
 import dev.yuzhe.aeaffinity.endpoint.StorageMountObserver;
@@ -21,7 +21,6 @@ import dev.yuzhe.aeaffinity.scheduler.MoveCandidate;
 import dev.yuzhe.aeaffinity.scheduler.SchedulerLimits;
 import dev.yuzhe.aeaffinity.transfer.TransferEngine;
 import dev.yuzhe.aeaffinity.transfer.TransferStatus;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Map;
@@ -36,11 +35,12 @@ public final class AffinityGridService implements IAffinityGridService, IGridSer
     private static final Logger LOG = LoggerFactory.getLogger(AffinityGridService.class);
     private static final String ANCHOR_TAG = "aeaffinity:anchor";
     private static final int TARGET_SAMPLES = 4;
+    private static final int PLACEMENT_SCAN_BUDGET = 8;
     private static final int MIN_GAIN = 20;
     private static final long MAX_MOVE = 256;
 
     private final IGrid grid;
-    private final Map<MEStorage, MountedEndpoint> endpoints = new IdentityHashMap<>();
+    private final EndpointPlacementIndex endpointIndex = new EndpointPlacementIndex();
     private final Set<IGridNode> anchors = Collections.newSetFromMap(new IdentityHashMap<>());
     private final Map<Long, MigrationPlan> plans = new java.util.HashMap<>();
     private final Random random = new Random();
@@ -86,13 +86,13 @@ public final class AffinityGridService implements IAffinityGridService, IGridSer
 
     @Override
     public void onMounted(MountedEndpoint endpoint) {
-        endpoints.put(endpoint.storage(), endpoint);
+        endpointIndex.mount(endpoint);
         scheduler.wakeUp();
     }
 
     @Override
     public void onUnmounted(MountedEndpoint endpoint) {
-        endpoints.remove(endpoint.storage());
+        endpointIndex.unmount(endpoint);
         plans.entrySet().removeIf(entry -> entry.getValue().source().storage() == endpoint.storage()
                 || entry.getValue().target().storage() == endpoint.storage());
         scheduler.wakeUp();
@@ -100,7 +100,7 @@ public final class AffinityGridService implements IAffinityGridService, IGridSer
 
     @Override
     public int mountedEndpointCount() {
-        return endpoints.size();
+        return endpointIndex.size();
     }
 
     @Override
@@ -131,19 +131,20 @@ public final class AffinityGridService implements IAffinityGridService, IGridSer
     }
 
     private void plan() {
-        if (endpoints.size() < 2) {
+        if (endpointIndex.size() < 2) {
             return;
         }
 
-        var mounted = new ArrayList<>(endpoints.values());
-        var source = mounted.get(random.nextInt(mounted.size()));
+        endpointIndex.refreshOne(PLACEMENT_SCAN_BUDGET, this::isUsefulPlacement);
+        var placement = endpointIndex.sampleSource();
+        if (placement == null) {
+            return;
+        }
+
+        var source = placement.endpoint();
         var sourceKind = EndpointClassifier.kind(source);
         if (sourceKind == EndpointKind.OPAQUE || !EndpointClassifier.isRollbackSafeSource(source)) {
-            return;
-        }
-
-        var placement = sampleUsefulPlacement(source, sourceKind);
-        if (placement == null) {
+            endpointIndex.markDirty(source);
             return;
         }
 
@@ -155,9 +156,8 @@ public final class AffinityGridService implements IAffinityGridService, IGridSer
         }
 
         var sourceAffinity = AffinityScorer.score(sourceKind, key.getMaxStackSize(), sourceAmount);
-        for (int i = 0; i < TARGET_SAMPLES; i++) {
-            var target = mounted.get(random.nextInt(mounted.size()));
-            if (target.storage() == source.storage() || !EndpointClassifier.isConservativeTarget(target)) {
+        for (var target : endpointIndex.sampleTargets(source, TARGET_SAMPLES, random)) {
+            if (!EndpointClassifier.isConservativeTarget(target)) {
                 continue;
             }
 
@@ -179,22 +179,11 @@ public final class AffinityGridService implements IAffinityGridService, IGridSer
         }
     }
 
-    private Placement sampleUsefulPlacement(MountedEndpoint source, EndpointKind kind) {
-        Placement selected = null;
-        int seen = 0;
-        for (var entry : source.storage().getAvailableStacks()) {
-            if (!(entry.getKey() instanceof AEItemKey itemKey) || entry.getLongValue() <= 0) {
-                continue;
-            }
-            if (moveAmount(kind, itemKey, entry.getLongValue()) == 0) {
-                continue;
-            }
-            seen++;
-            if (random.nextInt(seen) == 0) {
-                selected = new Placement(itemKey, entry.getLongValue());
-            }
-        }
-        return selected;
+    private boolean isUsefulPlacement(MountedEndpoint endpoint, AEItemKey key, long amount) {
+        var kind = EndpointClassifier.kind(endpoint);
+        return kind != EndpointKind.OPAQUE
+                && EndpointClassifier.isRollbackSafeSource(endpoint)
+                && moveAmount(kind, key, amount) > 0;
     }
 
     private static long moveAmount(EndpointKind sourceKind, AEItemKey key, long amount) {
@@ -239,30 +228,38 @@ public final class AffinityGridService implements IAffinityGridService, IGridSer
                 return CommitResult.REJECTED;
             }
 
-            var result = TransferEngine.moveWholeUnitPowered(
-                    plan.source().storage(),
-                    plan.target().storage(),
-                    plan.key(),
-                    plan.amount(),
-                    plan.actionSource(),
-                    grid.getEnergyService());
+            var result = AeAffinityConfig.CHARGE_ENERGY.get()
+                    ? TransferEngine.moveWholeUnitPowered(
+                            plan.source().storage(),
+                            plan.target().storage(),
+                            plan.key(),
+                            plan.amount(),
+                            plan.actionSource(),
+                            grid.getEnergyService())
+                    : TransferEngine.moveWholeUnit(
+                            plan.source().storage(),
+                            plan.target().storage(),
+                            plan.key(),
+                            plan.amount(),
+                            plan.actionSource());
             if (result.status() == TransferStatus.ROLLBACK_FAILED) {
                 LOG.error("AE Affinity could not return {} of {} to its source; disabling this candidate path",
                         plan.amount() - result.moved() - result.restored(), plan.key());
-                endpoints.remove(plan.source().storage());
-                endpoints.remove(plan.target().storage());
+                endpointIndex.unmount(plan.source());
+                endpointIndex.unmount(plan.target());
                 return CommitResult.REJECTED;
             }
             return result.moved() > 0 ? CommitResult.MOVED : CommitResult.STALE;
         } finally {
+            if (plan != null) {
+                endpointIndex.markDirty(plan.source());
+                endpointIndex.markDirty(plan.target());
+            }
             plans.clear();
         }
     }
 
     private boolean stillMounted(MountedEndpoint endpoint) {
-        return endpoints.get(endpoint.storage()) == endpoint;
-    }
-
-    private record Placement(AEItemKey key, long amount) {
+        return endpointIndex.contains(endpoint);
     }
 }

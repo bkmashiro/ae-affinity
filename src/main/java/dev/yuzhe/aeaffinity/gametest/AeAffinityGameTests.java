@@ -160,6 +160,7 @@ public final class AeAffinityGameTests {
 
     private static Fixture setupNetwork(GameTestHelper helper, AEItemKey cellKey, long cellAmount) {
         AeAffinityConfig.ACTIVATION.set(ActivationMode.ALL);
+        AeAffinityConfig.CHARGE_ENERGY.set(true);
         AeAffinityConfig.MIN_IDLE_TICKS.set(20);
         AeAffinityConfig.MAX_IDLE_TICKS.set(20);
         AeAffinityConfig.PLANNING_TICKS.set(1);

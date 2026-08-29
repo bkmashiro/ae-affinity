@@ -9,6 +9,10 @@ public final class AeAffinityConfig {
             .comment("OFF disables scheduling; ANCHORED enables grids with a command anchor; ALL enables every grid.")
             .defineEnum("activation", ActivationMode.ANCHORED);
 
+    public static final ModConfigSpec.BooleanValue CHARGE_ENERGY = BUILDER
+            .comment("Charge the network's normal AE2 insertion energy for background migrations.")
+            .define("chargeEnergy", true);
+
     public static final ModConfigSpec.IntValue MIN_IDLE_TICKS = BUILDER
             .comment("Fastest retry interval after useful work. 200 ticks = 10 seconds at 20 TPS.")
             .defineInRange("minIdleTicks", 200, 20, 72_000);

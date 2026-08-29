@@ -37,7 +37,9 @@ idle for A ticks
 → validate and commit at most one move in one tick
 ```
 
-Planning only creates cheap suggestions. Immediately before committing, AE Affinity resolves both endpoints again, reads current amounts, checks access and conservation properties, and asks both storages to simulate the whole micro-transfer. The actual `extract → powered insert → return remainder` sequence then completes synchronously in the same server tick. AE2's energy service limits and charges the insertion using the same helper as the I/O Port. No item remains in flight between ticks.
+Planning only creates cheap suggestions. A bounded placement index advances at most eight keys for one dirty endpoint per planning tick and retains a 16-entry reservoir of useful hints. Source and target selection use indexed lists with at most four target comparisons, rather than walking every endpoint or item key. Mounts, unmounts and attempted moves mark endpoints dirty; otherwise endpoints are reconciled round-robin during the already infrequent planning phase. Immediately before committing, AE Affinity resolves both endpoints again, reads current amounts, checks access and conservation properties, and asks both storages to simulate the whole micro-transfer.
+
+The actual `extract → insert → return remainder` sequence completes synchronously in the same server tick. By default the insertion uses AE2's energy service and the same powered helper as the I/O Port. Servers can set `chargeEnergy=false` to make background insertion free; the grid must still be powered for the scheduler to run. No item remains in flight between ticks.
 
 The interval is adaptive. Useful work brings the scheduler back toward its configured minimum; stable rounds exponentially back off toward the maximum. The defaults range from 10 seconds to 15 minutes.
 
@@ -76,7 +78,7 @@ Without coordinates, player commands use the AE block under the crosshair within
 
 Why an anchor instead of a network ID? AE grids are runtime objects: cable changes can split or merge them, and they are reconstructed after reload. The coordinate is used only to locate an AE node when the command runs; the anchor flag is persisted with that node's AE grid-service data, not in a global coordinate list. Breaking the block removes the node and its anchor, while unloading and reloading its chunk restores the flag with the node. If a network splits, only the side containing an anchor remains enabled; when networks merge, the merged grid is enabled if it contains at least one anchor.
 
-The default mode is `ANCHORED`, so installing the addon does not immediately rearrange every player's storage. Set `activation=ALL` to enable every grid or `OFF` to pause scheduling globally. NeoForge generates `config/aeaffinity-server.toml` with the activation mode and speed bounds.
+The default mode is `ANCHORED`, so installing the addon does not immediately rearrange every player's storage. Set `activation=ALL` to enable every grid or `OFF` to pause scheduling globally. NeoForge generates `config/aeaffinity-server.toml` with the activation mode, `chargeEnergy=true` and scheduler speed bounds.
 
 ## Build and verify
 
@@ -95,7 +97,7 @@ AE Affinity follows AE2's own synchronous transfer model rather than keeping a c
 
 - Aggregate affinity reports at storage buses connected to child ME networks.
 - Data-driven affinity profiles for third-party storage mods and modpacks.
-- Better incremental endpoint snapshots for externally mutated high-churn containers.
+- Dedicated dirty adapters for externally mutated high-churn containers.
 - Real-network profiling and tuning on large modded servers.
 - Optional status UI only if the headless commands prove insufficient.
 
