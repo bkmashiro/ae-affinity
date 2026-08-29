@@ -42,6 +42,11 @@ neoForge {
             server()
             programArgument '--nogui'
         }
+        gameTestServer {
+            type = 'gameTestServer'
+            gameDirectory = project.file('build/gametest')
+            systemProperty 'neoforge.enabledGameTestNamespaces', 'aeaffinity'
+        }
     }
 
     mods {
@@ -59,6 +64,17 @@ neoForge {
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     options.release = 21
+}
+
+tasks.named('jar', Jar) {
+    exclude 'dev/yuzhe/aeaffinity/gametest/**'
+    exclude 'data/aeaffinity/structure/empty.nbt'
+}
+
+tasks.register('verifyAll') {
+    group = 'verification'
+    description = 'Runs unit tests, builds the distributable JAR, and executes headless AE2 GameTests.'
+    dependsOn tasks.named('build'), tasks.named('runGameTestServer')
 }
 
 test {

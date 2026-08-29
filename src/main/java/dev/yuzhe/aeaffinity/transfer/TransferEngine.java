@@ -1,9 +1,11 @@
 package dev.yuzhe.aeaffinity.transfer;
 
 import appeng.api.config.Actionable;
+import appeng.api.networking.energy.IEnergySource;
 import appeng.api.networking.security.IActionSource;
 import appeng.api.stacks.AEKey;
 import appeng.api.storage.MEStorage;
+import appeng.api.storage.StorageHelper;
 
 /** Performs one complete, synchronous, non-yielding migration using AE2's own transfer pattern. */
 public final class TransferEngine {
@@ -15,11 +17,34 @@ public final class TransferEngine {
             AEKey key,
             long amount,
             IActionSource actionSource) {
+        return moveWholeUnit(source, target, key, amount, actionSource,
+                (insertAmount, mode) -> target.insert(key, insertAmount, mode, actionSource));
+    }
+
+    public static TransferResult moveWholeUnitPowered(
+            MEStorage source,
+            MEStorage target,
+            AEKey key,
+            long amount,
+            IActionSource actionSource,
+            IEnergySource energySource) {
+        return moveWholeUnit(source, target, key, amount, actionSource,
+                (insertAmount, mode) -> StorageHelper.poweredInsert(
+                        energySource, target, key, insertAmount, actionSource, mode));
+    }
+
+    private static TransferResult moveWholeUnit(
+            MEStorage source,
+            MEStorage target,
+            AEKey key,
+            long amount,
+            IActionSource actionSource,
+            TargetInsert targetInsert) {
         if (amount <= 0 || source == target) {
             return TransferResult.rejected();
         }
 
-        var accepted = target.insert(key, amount, Actionable.SIMULATE, actionSource);
+        var accepted = targetInsert.insert(amount, Actionable.SIMULATE);
         if (accepted != amount) {
             return TransferResult.rejected();
         }
@@ -34,7 +59,7 @@ public final class TransferEngine {
             return TransferResult.rejected();
         }
 
-        var inserted = target.insert(key, extracted, Actionable.MODULATE, actionSource);
+        var inserted = targetInsert.insert(extracted, Actionable.MODULATE);
         var remainder = extracted - inserted;
         if (remainder == 0) {
             return new TransferResult(inserted, 0, TransferStatus.MOVED);
@@ -43,5 +68,10 @@ public final class TransferEngine {
         var restored = source.insert(key, remainder, Actionable.MODULATE, actionSource);
         var status = restored == remainder ? TransferStatus.PARTIAL_ROLLED_BACK : TransferStatus.ROLLBACK_FAILED;
         return new TransferResult(inserted, restored, status);
+    }
+
+    @FunctionalInterface
+    private interface TargetInsert {
+        long insert(long amount, Actionable mode);
     }
 }

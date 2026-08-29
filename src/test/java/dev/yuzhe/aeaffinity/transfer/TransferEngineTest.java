@@ -4,12 +4,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import appeng.api.config.Actionable;
+import appeng.api.networking.energy.IEnergySource;
 import appeng.api.networking.security.IActionSource;
+import appeng.api.stacks.AEItemKey;
 import appeng.api.stacks.AEKey;
 import appeng.api.storage.MEStorage;
 import java.util.HashMap;
 import java.util.Map;
+import net.minecraft.world.item.Items;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
 
 class TransferEngineTest {
     private final AEKey key = mock(AEKey.class);
@@ -25,6 +30,28 @@ class TransferEngineTest {
         assertThat(result).isEqualTo(new TransferResult(3, 0, TransferStatus.MOVED));
         assertThat(source.amount(key)).isZero();
         assertThat(target.amount(key)).isEqualTo(3);
+    }
+
+    @Test
+    void poweredMoveChargesAeEnergy() {
+        var itemKey = AEItemKey.of(Items.COBBLESTONE);
+        var source = new FakeStorage(Map.of(itemKey, 3L), Long.MAX_VALUE);
+        var target = new FakeStorage(Map.of(), 3);
+        var energy = mock(IEnergySource.class);
+        Mockito.when(energy.extractAEPower(
+                        ArgumentMatchers.anyDouble(),
+                        ArgumentMatchers.any(),
+                        ArgumentMatchers.any()))
+                .thenAnswer(call -> call.getArgument(0));
+
+        var result = TransferEngine.moveWholeUnitPowered(
+                source, target, itemKey, 3, actionSource, energy);
+
+        assertThat(result.status()).isEqualTo(TransferStatus.MOVED);
+        Mockito.verify(energy).extractAEPower(
+                ArgumentMatchers.anyDouble(),
+                ArgumentMatchers.eq(Actionable.MODULATE),
+                ArgumentMatchers.any());
     }
 
     @Test

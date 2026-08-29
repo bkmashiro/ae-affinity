@@ -37,7 +37,7 @@ idle for A ticks
 → validate and commit at most one move in one tick
 ```
 
-Planning only creates cheap suggestions. Immediately before committing, AE Affinity resolves both endpoints again, reads current amounts, checks access and conservation properties, and asks both storages to simulate the whole micro-transfer. The actual `extract → insert → return remainder` sequence then completes synchronously in the same server tick. No item remains in flight between ticks.
+Planning only creates cheap suggestions. Immediately before committing, AE Affinity resolves both endpoints again, reads current amounts, checks access and conservation properties, and asks both storages to simulate the whole micro-transfer. The actual `extract → powered insert → return remainder` sequence then completes synchronously in the same server tick. AE2's energy service limits and charges the insertion using the same helper as the I/O Port. No item remains in flight between ticks.
 
 The interval is adaptive. Useful work brings the scheduler back toward its configured minimum; stable rounds exponentially back off toward the maximum. The defaults range from 10 seconds to 15 minutes.
 
@@ -82,11 +82,10 @@ The default mode is `ANCHORED`, so installing the addon does not immediately rea
 
 ```bash
 export JAVA_HOME=/opt/homebrew/opt/openjdk@21
-./gradlew clean test build
-./gradlew runServer
+./gradlew verifyAll
 ```
 
-The tests cover phase separation and adaptive backoff, affinity direction, whole-transfer simulation gating, partial insertion rollback and rollback-failure reporting. A NeoForge dedicated development server is also used as the startup smoke test.
+`verifyAll` runs the ordinary unit suite, builds the distributable JAR, and starts a headless NeoForge GameTest server. The GameTests construct real powered AE grids with a Drive, item cell, storage bus and chest. They verify sparse and bulk migration, exact conservation, full-target rejection, endpoint removal, Void Card exclusion, access direction and removal of a destroyed activation anchor. Test-only classes and structures are excluded from the release JAR.
 
 ## Safety boundary
 

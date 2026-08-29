@@ -239,12 +239,13 @@ public final class AffinityGridService implements IAffinityGridService, IGridSer
                 return CommitResult.REJECTED;
             }
 
-            var result = TransferEngine.moveWholeUnit(
+            var result = TransferEngine.moveWholeUnitPowered(
                     plan.source().storage(),
                     plan.target().storage(),
                     plan.key(),
                     plan.amount(),
-                    plan.actionSource());
+                    plan.actionSource(),
+                    grid.getEnergyService());
             if (result.status() == TransferStatus.ROLLBACK_FAILED) {
                 LOG.error("AE Affinity could not return {} of {} to its source; disabling this candidate path",
                         plan.amount() - result.moved() - result.restored(), plan.key());
