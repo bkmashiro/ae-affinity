@@ -12,6 +12,18 @@ java {
     }
 }
 
+sourceSets {
+    createGameTest {
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
+configurations {
+    createGameTestImplementation.extendsFrom implementation
+    createGameTestRuntimeOnly.extendsFrom runtimeOnly
+}
+
 repositories {
     exclusiveContent {
         forRepository {
@@ -27,6 +39,8 @@ repositories {
 dependencies {
     implementation "maven.modrinth:ae2:${ae2_version}"
     runtimeOnly 'maven.modrinth:guideme:21.1.10'
+    // Create 6.0.6 requires NeoForge >=21.1.152 and stays isolated from production runtime.
+    createGameTestRuntimeOnly 'maven.modrinth:create:1.21.1-6.0.6'
 
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
@@ -36,6 +50,7 @@ dependencies {
 
 neoForge {
     version = neoforge_version
+    addModdingDependenciesTo sourceSets.createGameTest
 
     runs {
         server {
@@ -46,6 +61,7 @@ neoForge {
             type = 'gameTestServer'
             gameDirectory = project.file('build/gametest')
             systemProperty 'neoforge.enabledGameTestNamespaces', 'aeaffinity'
+            sourceSet = sourceSets.createGameTest
         }
     }
 

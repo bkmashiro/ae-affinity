@@ -46,7 +46,7 @@ The interval is adaptive. Useful work brings the scheduler back toward its confi
 ### Current automatic affinity
 
 - Ordinary AE item cells prefer existing keys, stackable bulk items and numerous identical items.
-- Direct standard slotted containers behind a storage bus prefer a few sparse unstackable items.
+- Direct standard slotted containers behind a storage bus prefer a few sparse unstackable items. Vanilla chests and Create Item Vaults are exercised by headless integration tests.
 - Sparse unstackables of an exact key, currently up to four, can move from cells to slotted storage.
 - Numerous unstackables and ordinary bulk stacks can move back toward cells.
 - Child ME networks, custom cells and genuinely unknown storage remain opaque instead of being guessed.
@@ -87,7 +87,7 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
 ./gradlew verifyAll
 ```
 
-`verifyAll` runs the ordinary unit suite, builds the distributable JAR, and starts a headless NeoForge GameTest server. The GameTests construct real powered AE grids with a Drive, item cell, storage bus and chest. They verify sparse and bulk migration, exact conservation, full-target rejection, endpoint removal, Void Card exclusion, access direction, removal of a destroyed activation anchor, and prompt wake-up when a backed-off grid's chest is changed externally. Test-only classes and structures are excluded from the release JAR.
+`verifyAll` runs the ordinary unit suite, builds the distributable JAR, and starts a headless NeoForge GameTest server. The GameTests construct real powered AE grids against both vanilla chests and two-block Create Item Vaults. They verify bidirectional sparse/bulk migration, exact conservation, full-target rejection, endpoint removal, Void Card and access restrictions, anchor lifecycle, and prompt wake-up after direct external inventory mutation. Test-only classes and structures are excluded from the release JAR. Create 6.0.6 is isolated to the GameTest runtime source set, so Create is neither packaged nor required on production servers.
 
 ## Safety boundary
 
